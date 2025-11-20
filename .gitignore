@@ -1,0 +1,67 @@
+# ------------------------------------
+#  WINDOWS SYSTEM FILES
+# ------------------------------------
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ------------------------------------
+#  NODE / REACT / EXPRESS
+# ------------------------------------
+
+# Node modules (DO NOT PUSH)
+node_modules/
+**/node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# dotenv / environment files
+.env
+*.env
+
+# Build output
+build/
+dist/
+client/build/
+client/dist/
+
+# React cache
+client/.cache/
+client/.vite/
+
+# ------------------------------------
+#  PYTHON / FASTAPI
+# ------------------------------------
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments (DO NOT PUSH)
+venv/
+.venv/
+env/
+ENV/
+
+# Python model files (OPTIONAL)
+# Uncomment if you don't want to upload models
+# ml_api/models/*.h5
+# ml_api/models/*.joblib
+# ml_api/models/*.model
+# ml_api/models/*.json
+
+# FastAPI logs
+*.log
+
+# ------------------------------------
+#  EDITOR / IDE FILES
+# ------------------------------------
