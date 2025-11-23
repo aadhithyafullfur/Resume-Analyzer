@@ -9,6 +9,7 @@ export default function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -16,13 +17,23 @@ export default function Register() {
     setError("");
     
     // Validation
-    if (!name.trim() || !email.trim() || !password.trim()) {
+    if (!name.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
       setError("All fields are required");
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Please enter a valid email address");
       return;
     }
     
     if (password.length < 6) {
       setError("Password must be at least 6 characters");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
       return;
     }
     
@@ -38,26 +49,129 @@ export default function Register() {
   };
 
   return (
-    <div className="h-screen flex items-center justify-center bg-gray-200">
-      <div className="p-6 bg-white shadow rounded w-80">
-        <h1 className="text-xl font-bold mb-4">Register</h1>
+    <div className="min-h-screen bg-gradient-to-b from-gray-950 via-black to-gray-900 flex items-center justify-center px-4 py-8">
+      <div className="w-full max-w-md">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-yellow-400 via-yellow-500 to-yellow-600 bg-clip-text text-transparent mb-2">
+            Create Account
+          </h1>
+          <p className="text-gray-400">Join us and analyze your resume with AI</p>
+        </div>
 
-        {error && <div className="mb-3 p-3 bg-red-100 text-red-700 rounded text-sm">{error}</div>}
+        {/* Form Card */}
+        <div className="bg-black/30 backdrop-blur-xl border border-yellow-500/20 rounded-2xl p-8 shadow-2xl">
+          {/* Error Message */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <p className="text-red-400 text-sm font-medium">{error}</p>
+            </div>
+          )}
 
-        <input className="w-full p-2 border mb-3"
-          placeholder="Name" value={name} onChange={e=>setName(e.target.value)} disabled={loading} />
+          {/* Form */}
+          <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="space-y-5">
+            {/* Name Field */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-2">
+                Full Name
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="John Doe"
+                disabled={loading}
+                className="w-full px-4 py-3 bg-black/50 border border-yellow-500/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500/60 focus:ring-2 focus:ring-yellow-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+            </div>
 
-        <input className="w-full p-2 border mb-3" type="email"
-          placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} disabled={loading} />
+            {/* Email Field */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-2">
+                Email Address
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                disabled={loading}
+                className="w-full px-4 py-3 bg-black/50 border border-yellow-500/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500/60 focus:ring-2 focus:ring-yellow-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+            </div>
 
-        <input className="w-full p-2 border mb-3" type="password"
-          placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} disabled={loading} />
+            {/* Password Field */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-2">
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                disabled={loading}
+                className="w-full px-4 py-3 bg-black/50 border border-yellow-500/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500/60 focus:ring-2 focus:ring-yellow-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+              <p className="text-xs text-gray-500 mt-1">At least 6 characters</p>
+            </div>
 
-        <button className="w-full bg-blue-600 text-white p-2 disabled:opacity-50"
-          onClick={submit} disabled={loading}>{loading ? "Registering..." : "Register"}</button>
+            {/* Confirm Password Field */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-2">
+                Confirm Password
+              </label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                disabled={loading}
+                className="w-full px-4 py-3 bg-black/50 border border-yellow-500/20 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500/60 focus:ring-2 focus:ring-yellow-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+            </div>
 
-        <p className="mt-3 text-sm">
-          Already have an account? <Link to="/" className="text-blue-600">Login</Link>
+            {/* Sign Up Button */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-yellow-400 to-yellow-600 hover:from-yellow-500 hover:to-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed text-black font-bold py-3 rounded-lg transition shadow-lg hover:shadow-yellow-500/50 duration-200"
+            >
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="animate-spin">⏳</span> Creating account...
+                </span>
+              ) : (
+                "Create Account"
+              )}
+            </button>
+          </form>
+
+          {/* Divider */}
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-yellow-500/20"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-black/30 text-gray-500">or</span>
+            </div>
+          </div>
+
+          {/* Sign In Link */}
+          <p className="text-center text-gray-400">
+            Already have an account?{" "}
+            <Link
+              to="/login"
+              className="font-semibold text-yellow-400 hover:text-yellow-300 transition"
+            >
+              Sign in
+            </Link>
+          </p>
+        </div>
+
+        {/* Bottom Info */}
+        <p className="text-center text-gray-500 text-sm mt-6">
+          AI-powered resume analysis to boost your career
         </p>
       </div>
     </div>
