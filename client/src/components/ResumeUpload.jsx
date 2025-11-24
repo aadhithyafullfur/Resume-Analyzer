@@ -21,6 +21,7 @@ export default function ResumeUpload() {
     setError(null);
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("job_description", jobDescription);
 
     try {
       const res = await mlApi.post("/predict", formData, {

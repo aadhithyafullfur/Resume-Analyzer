@@ -30,11 +30,12 @@ if (typeof chrome !== "undefined" && chrome?.runtime) {
   // eslint-disable-next-line no-undef
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     try {
-      sendResponse({ success: true });
+      // Respond immediately without returning true to prevent "message channel closed" error
+      sendResponse({ received: true });
     } catch {
-      // Silently handle
+      // Silently handle - extension may already be unloaded
     }
-    return true;
+    // IMPORTANT: Never return true here - it causes async response timeout
   });
 }
 

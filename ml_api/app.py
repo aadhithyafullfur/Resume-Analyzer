@@ -4,15 +4,23 @@ import os
 import json
 import re
 from typing import List, Optional, Dict, Any
+from dotenv import load_dotenv
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import openai
 
 import joblib
 import numpy as np
 import pdfplumber
 from docx import Document as DocxDocument
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Set OpenAI API key
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Optional OCR imports (only used if available)
 try:
@@ -57,6 +65,150 @@ LSTM_CAT_PATH = os.path.join(MODELS_DIR, "resume_category_lstm.h5")
 LSTM_TYPE_PATH = os.path.join(MODELS_DIR, "resume_skilltype_lstm.h5")
 TOKENIZER_PATH = os.path.join(MODELS_DIR, "tokenizer.json")
 CONFIG_PATH = os.path.join(MODELS_DIR, "config.json")
+
+# OpenAI Configuration
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+if OPENAI_API_KEY:
+    openai.api_key = OPENAI_API_KEY
+
+def analyze_resume_with_openai(resume_text: str, job_description: str = "") -> Dict[str, Any]:
+    """
+    Use OpenAI to analyze resume and provide intelligent insights
+    """
+    if not OPENAI_API_KEY:
+        return {"error": "OpenAI API key not configured"}
+    
+    try:
+        job_context = f"\n\nJob Description:\n{job_description}" if job_description else ""
+        
+        prompt = f"""Analyze this resume and provide detailed insights in JSON format.
+
+Resume:
+{resume_text}{job_context}
+
+Provide a JSON response with:
+1. summary: Brief overview of the candidate
+2. strengths: List of top 3-5 strengths
+3. weaknesses: List of 2-3 areas for improvement
+4. recommendations: List of 3-4 recommendations
+5. experience_level: "Entry", "Mid", or "Senior"
+6. soft_skills: List of detected soft skills
+7. technical_skills: List of detected technical skills
+8. job_match_analysis: If job description provided, detailed match analysis
+
+Return ONLY valid JSON, no markdown or extra text."""
+
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are an expert resume analyst. Always respond with valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=2000
+        )
+        
+        response_text = response.choices[0].message.content
+        
+        # Try to parse JSON response
+        try:
+            analysis = json.loads(response_text)
+        except json.JSONDecodeError:
+            # If JSON parsing fails, extract JSON from markdown code blocks
+            json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
+            if json_match:
+                analysis = json.loads(json_match.group(1))
+            else:
+                analysis = {"raw_response": response_text}
+        
+        return analysis
+    
+    except Exception as e:
+        return {"error": f"OpenAI analysis failed: {str(e)}"}
+
+def extract_text_with_openai(resume_text: str) -> str:
+    """
+    Use OpenAI to clean and structure the extracted resume text
+    """
+    if not OPENAI_API_KEY or not resume_text:
+        return resume_text
+    
+    try:
+        prompt = f"""You are a resume processing assistant. Clean and structure this resume text, removing any noise or unnecessary formatting. 
+Keep all important information (skills, experience, education, contact info).
+Return only the cleaned resume text, no markdown or extra formatting.
+
+Resume text:
+{resume_text[:3000]}"""
+
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a resume cleaning assistant. Return only cleaned text, no markdown."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=1500
+        )
+        
+        cleaned_text = response.choices[0].message.content.strip()
+        return cleaned_text
+    
+    except Exception:
+        # If OpenAI fails, return original text
+        return resume_text
+
+def calculate_job_match_with_openai(resume_text: str, job_description: str) -> Dict[str, Any]:
+    """
+    Use OpenAI to intelligently match resume with job description
+    Returns match score and detailed analysis
+    """
+    if not OPENAI_API_KEY or not job_description:
+        return {"match_score": 0, "match_analysis": "No job description provided"}
+    
+    try:
+        prompt = f"""Analyze how well this resume matches the job description.
+        
+Resume (key points):
+{resume_text[:1500]}
+
+Job Description:
+{job_description[:1500]}
+
+Provide a JSON response with:
+1. match_score: Overall match percentage (0-100)
+2. matched_skills: List of resume skills that match job requirements
+3. missing_skills: List of job requirements not found in resume
+4. match_analysis: Brief analysis of the match
+5. recommendations: What the candidate should focus on to improve fit
+
+Return ONLY valid JSON, no markdown."""
+
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are an expert recruiter analyzing resume-job fit. Always respond with valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=1500
+        )
+        
+        response_text = response.choices[0].message.content
+        
+        try:
+            match_data = json.loads(response_text)
+        except json.JSONDecodeError:
+            json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
+            if json_match:
+                match_data = json.loads(json_match.group(1))
+            else:
+                match_data = {"match_score": 0}
+        
+        return match_data
+    
+    except Exception as e:
+        return {"match_score": 0, "error": str(e)}
 
 # Keyword list (adapt to your training)
 SKILL_KEYWORDS = [
@@ -397,9 +549,129 @@ async def batch_analyze(files: List[UploadFile] = File(...)):
             results.append({"filename": getattr(file, "filename", None), "error": str(e)})
     return {"results": results}
 
-# -----------------------------
+
+@app.post("/predict")
+async def predict(file: UploadFile = File(...), job_description: str = ""):
+    """
+    Analyze resume and match it against job description.
+    Returns skills analysis, category predictions, and job match score.
+    """
+    if not file:
+        raise HTTPException(status_code=400, detail="No file uploaded.")
+    
+    content = await file.read()
+    filename = file.filename or ""
+
+    # Determine type by extension
+    ext = (filename.split(".")[-1] if "." in filename else "").lower()
+    raw_text = ""
+
+    if ext in ["pdf"]:
+        raw_text = extract_text_from_pdf_bytes(content)
+    elif ext in ["docx"]:
+        raw_text = extract_text_from_docx_bytes(content)
+    elif ext in ["txt"]:
+        try:
+            raw_text = content.decode("utf-8", errors="ignore")
+        except Exception:
+            raw_text = ""
+    else:
+        # try pdfplumber first
+        raw_text = extract_text_from_pdf_bytes(content)
+        if not raw_text:
+            # try docx
+            raw_text = extract_text_from_docx_bytes(content)
+
+    if not raw_text:
+        raise HTTPException(status_code=400, detail="Could not extract text from file.")
+
+    # Clean and structure text using OpenAI
+    structured_text = extract_text_with_openai(raw_text)
+    
+    # Clean and extract skills
+    cleaned = clean_text(structured_text)
+    skills_found = extract_skills_from_text(cleaned)
+    skills_text = " ".join(skills_found) if skills_found else cleaned[:1000]
+
+    # TF-IDF predictions
+    tfidf_vec = None
+    cat_res = {"label": None, "confidence": None}
+    type_res = {"label": None, "confidence": None}
+    if tfidf is not None:
+        try:
+            tfidf_vec = tfidf.transform([skills_text])
+            cat_res = sklearn_predict_with_confidence(clf_cat, tfidf_vec)
+            type_res = sklearn_predict_with_confidence(clf_type, tfidf_vec)
+        except Exception:
+            pass
+
+    # LSTM predictions
+    lstm_cat_res = lstm_predict_with_confidence(lstm_cat, tokenizer, cleaned, max_len) if (lstm_cat and tokenizer) else {"label_index": None, "confidence": None}
+    lstm_type_res = lstm_predict_with_confidence(lstm_type, tokenizer, cleaned, max_len) if (lstm_type and tokenizer) else {"label_index": None, "confidence": None}
+
+    # Get OpenAI-based job matching if job description is provided
+    openai_match = {}
+    if job_description:
+        openai_match = calculate_job_match_with_openai(structured_text, job_description)
+    
+    # Calculate traditional keyword-based job match score
+    job_match_score = 0
+    matched_skills = []
+    
+    if job_description:
+        job_desc_lower = job_description.lower()
+        for skill in skills_found:
+            if skill.lower() in job_desc_lower:
+                matched_skills.append(skill)
+        
+        # Match score: (matched skills / total skills) * 100
+        if skills_found:
+            job_match_score = round((len(matched_skills) / len(skills_found)) * 100, 2)
+    
+    # Get OpenAI analysis for enhanced insights
+    openai_analysis = analyze_resume_with_openai(structured_text, job_description)
+    
+    # Use OpenAI match score if available, otherwise use keyword matching
+    final_match_score = openai_match.get("match_score", job_match_score) if openai_match else job_match_score
+    
+    return {
+        "filename": filename,
+        "category_tfidf": cat_res["label"],
+        "category_tfidf_conf": round(cat_res["confidence"] * 100, 2) if cat_res["confidence"] else None,
+        "skill_type_tfidf": type_res["label"],
+        "skill_type_tfidf_conf": round(type_res["confidence"] * 100, 2) if type_res["confidence"] else None,
+        "category_lstm_index": lstm_cat_res.get("label_index"),
+        "category_lstm_conf": round(lstm_cat_res.get("confidence", 0) * 100, 2) if lstm_cat_res.get("confidence") else None,
+        "skill_type_lstm_index": lstm_type_res.get("label_index"),
+        "skill_type_lstm_conf": round(lstm_type_res.get("confidence", 0) * 100, 2) if lstm_type_res.get("confidence") else None,
+        "skills_found": skills_found,
+        "matched_skills": openai_match.get("matched_skills", matched_skills),
+        "missing_skills": openai_match.get("missing_skills", []),
+        "job_match_score": final_match_score,
+        "total_skills": len(skills_found),
+        "matched_skills_count": len(matched_skills),
+        "text_snippet": cleaned[:2000],
+        "openai_analysis": openai_analysis,
+        "openai_job_match": openai_match,
+        "chart_data": {
+            "skillsDistribution": {
+                "matched": len(matched_skills),
+                "unmatched": len(skills_found) - len(matched_skills)
+            },
+            "confidenceScores": {
+                "category_tfidf": cat_res["confidence"],
+                "skill_type_tfidf": type_res["confidence"],
+                "category_lstm": lstm_cat_res.get("confidence"),
+                "skill_type_lstm": lstm_type_res.get("confidence")
+            },
+            "jobMatchPercentage": final_match_score
+        }
+    }
+
+
+# ------------------------------ 
 # If run directly (for local dev)
-# -----------------------------
+# ------------------------------ 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True)
