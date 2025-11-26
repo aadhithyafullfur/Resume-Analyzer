@@ -180,7 +180,10 @@ export default function ResumeUpload() {
       >
         {loading ? (
           <span className="flex items-center justify-center gap-2">
-            <span className="animate-spin">⏳</span> Analyzing Resume...
+            <span className="animate-spin">⏳</span> 
+            {analysisMode === "ollama" 
+              ? "AI is analyzing (this may take 1-2 minutes)..." 
+              : "Analyzing Resume..."}
           </span>
         ) : (
           `Analyze with ${analysisMode === "ollama" ? "AI (Ollama)" : "ML"}`

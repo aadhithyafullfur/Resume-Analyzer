@@ -7,15 +7,21 @@ export default function PredictionCard({ data }) {
     return null;
   }
 
-  // Calculate match percentage for visual display
-  const jobMatchScore = data.job_match_score || 0;
+  // Get match score from different possible sources
+  const jobMatchScore = data.job_match_score || data.analysis?.skill_match_score || 0;
   const matchColorClass = 
     jobMatchScore >= 75 ? "text-green-500" : 
     jobMatchScore >= 50 ? "text-yellow-500" : 
     "text-red-500";
 
+  // Get analysis data
+  const analysis = data.analysis || {};
   const openaiData = data.openai_analysis || {};
   const hasOpenAI = !openaiData.error && Object.keys(openaiData).length > 0;
+
+  // Get skills from analysis
+  const projectSkills = analysis.project_skills_implemented || [];
+  const futureSkills = analysis.future_skills_required || [];
 
   return (
     <div className="w-full mt-8 space-y-6">
@@ -29,7 +35,7 @@ export default function PredictionCard({ data }) {
             <div className={`text-7xl font-black ${matchColorClass} mb-2`}>
               {jobMatchScore.toFixed(1)}%
             </div>
-            <p className="text-gray-300 text-lg">Job Match Score</p>
+            <p className="text-gray-300 text-lg">Skill Match Score</p>
           </div>
         </div>
 
@@ -57,41 +63,121 @@ export default function PredictionCard({ data }) {
           </svg>
         </div>
 
-        {/* Match Details */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <div className="bg-black/40 rounded-lg p-4 border border-yellow-500/20">
-            <p className="text-gray-400 text-sm mb-1">Matched Skills</p>
-            <p className="text-3xl font-bold text-yellow-400">{data.matched_skills_count || 0}</p>
+        {/* Experience Alignment */}
+        {analysis.experience_alignment && (
+          <div className="text-center mb-6">
+            <p className="text-gray-300">
+              <span className="font-semibold text-yellow-400">Experience Level:</span> {analysis.experience_alignment}
+            </p>
           </div>
-          <div className="bg-black/40 rounded-lg p-4 border border-yellow-500/20">
-            <p className="text-gray-400 text-sm mb-1">Total Skills Found</p>
-            <p className="text-3xl font-bold text-white">{data.total_skills || 0}</p>
+        )}
+
+        {/* Skills Distribution */}
+        {(projectSkills.length > 0 || futureSkills.length > 0) && (
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="bg-black/40 rounded-lg p-4 border border-green-500/30">
+              <p className="text-gray-400 text-sm mb-1">Project Skills</p>
+              <p className="text-3xl font-bold text-green-400">{projectSkills.length}</p>
+            </div>
+            <div className="bg-black/40 rounded-lg p-4 border border-orange-500/30">
+              <p className="text-gray-400 text-sm mb-1">Skills to Learn</p>
+              <p className="text-3xl font-bold text-orange-400">{futureSkills.length}</p>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Skills Distribution Bar Chart */}
-        {data.total_skills > 0 && (
+        {(projectSkills.length > 0 || futureSkills.length > 0) && (
           <div className="mb-6">
-            <h3 className="text-white font-semibold mb-3">Skills Distribution</h3>
+            <h3 className="text-white font-semibold mb-3">Skills Overview</h3>
             <div className="flex gap-2 h-8 rounded-lg overflow-hidden bg-gray-800">
-              <div
-                className="bg-green-500 transition-all duration-300"
-                style={{width: `${(data.matched_skills_count / data.total_skills) * 100}%`}}
-                title={`${data.matched_skills_count} matched`}
-              />
-              <div
-                className="bg-red-500 transition-all duration-300"
-                style={{width: `${((data.total_skills - data.matched_skills_count) / data.total_skills) * 100}%`}}
-                title={`${data.total_skills - data.matched_skills_count} unmatched`}
-              />
+              {projectSkills.length > 0 && (
+                <div
+                  className="bg-green-500 transition-all duration-300"
+                  style={{width: `${(projectSkills.length / (projectSkills.length + futureSkills.length)) * 100}%`}}
+                  title={`${projectSkills.length} implemented`}
+                />
+              )}
+              {futureSkills.length > 0 && (
+                <div
+                  className="bg-orange-500 transition-all duration-300"
+                  style={{width: `${(futureSkills.length / (projectSkills.length + futureSkills.length)) * 100}%`}}
+                  title={`${futureSkills.length} to learn`}
+                />
+              )}
             </div>
             <div className="flex justify-between text-xs text-gray-400 mt-2">
-              <span>Matched: {data.matched_skills_count}</span>
-              <span>Unmatched: {data.total_skills - data.matched_skills_count}</span>
+              <span>✓ Implemented: {projectSkills.length}</span>
+              <span>○ To Learn: {futureSkills.length}</span>
             </div>
           </div>
         )}
       </div>
+
+      {/* Project Skills Implemented */}
+      {projectSkills.length > 0 && (
+        <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-6">
+          <button
+            onClick={() => setExpandedSection(expandedSection === "projectSkills" ? null : "projectSkills")}
+            className="flex justify-between items-center w-full text-white font-semibold mb-4 hover:text-green-400 transition"
+          >
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+              ✓ Project Skills Implemented ({projectSkills.length})
+            </span>
+            <svg className={`w-5 h-5 transition-transform ${expandedSection === "projectSkills" ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+          </button>
+          {expandedSection === "projectSkills" && (
+            <div className="flex flex-wrap gap-2">
+              {projectSkills.map((skill, idx) => (
+                <span key={idx} className="bg-green-500/20 text-green-300 px-3 py-1 rounded-full text-sm font-medium">
+                  {skill}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Future Skills Required */}
+      {futureSkills.length > 0 && (
+        <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-6">
+          <button
+            onClick={() => setExpandedSection(expandedSection === "futureSkills" ? null : "futureSkills")}
+            className="flex justify-between items-center w-full text-white font-semibold mb-4 hover:text-orange-400 transition"
+          >
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 bg-orange-500 rounded-full"></span>
+              📚 Skills to Learn ({futureSkills.length})
+            </span>
+            <svg className={`w-5 h-5 transition-transform ${expandedSection === "futureSkills" ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+          </button>
+          {expandedSection === "futureSkills" && (
+            <div className="flex flex-wrap gap-2">
+              {futureSkills.map((skill, idx) => (
+                <span key={idx} className="bg-orange-500/20 text-orange-300 px-3 py-1 rounded-full text-sm font-medium">
+                  {skill}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Summary */}
+      {analysis.summary && (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-6">
+          <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+            <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+            Summary
+          </h3>
+          <p className="text-gray-300 text-sm leading-relaxed">{analysis.summary}</p>
+        </div>
+      )}
 
       {/* OpenAI Analysis Section */}
       {hasOpenAI && (

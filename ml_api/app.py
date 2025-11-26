@@ -658,35 +658,38 @@ def call_ollama(resume_text: str, job_description: str = "") -> Dict[str, Any]:
     try:
         OLLAMA_API_URL = "http://localhost:11434/api/generate"
         OLLAMA_MODEL = "tinyllama"  # Lightweight model (637MB) - works with limited RAM. Alternatives: orca-mini, neural-chat
-        OLLAMA_TIMEOUT = 300  # Increased to 5 minutes for tinyllama generation
+        OLLAMA_TIMEOUT = 120  # Reduced timeout to 2 minutes - tinyllama is too slow
         
-        print(f"[Ollama] Calling {OLLAMA_MODEL} with 300s timeout...")
+        print(f"[Ollama] Calling {OLLAMA_MODEL} with {OLLAMA_TIMEOUT}s timeout...")
         
         # Create intelligent prompt - simplified for better JSON parsing
         if job_description:
-            prompt = f"""Analyze this resume against the job description. Return ONLY a valid JSON object with these exact fields (no markdown, no extra text):
+            prompt = f"""Analyze this resume against the job description. Calculate a skill match score (0-100) based on how many job requirements the resume fulfills.
 
-RESUME: {resume_text[:500]}
-JOB: {job_description[:300]}
+RESUME: {resume_text[:600]}
 
-Return JSON with this exact structure:
-{{"overall_match": 0, "matched_skills": [], "missing_skills": [], "experience_alignment": "", "improvement_suggestions": [], "summary": ""}}"""
+JOB DESCRIPTION: {job_description[:400]}
+
+Return ONLY a valid JSON object (no markdown, no extra text):
+{{"skill_match_score": 75, "project_skills_implemented": ["Python", "JavaScript"], "future_skills_required": ["Kubernetes"], "experience_alignment": "Good", "summary": "Matches job well"}}"""
         else:
-            prompt = f"""Analyze this resume. Return ONLY a valid JSON object with these exact fields (no markdown, no extra text):
+            prompt = f"""Analyze this resume and extract skills.
 
-RESUME: {resume_text[:500]}
+RESUME: {resume_text[:600]}
 
-Return JSON with this exact structure:
-{{"skills_identified": [], "experience_level": "", "key_strengths": [], "improvement_areas": [], "summary": ""}}"""
+Return ONLY a valid JSON object:
+{{"skill_match_score": 0, "project_skills_implemented": ["skill1", "skill2"], "future_skills_required": [], "experience_level": "Mid-level", "summary": "Analysis"}}"""
         
-        # Call Ollama
+        # Call Ollama with shorter timeout
         response = requests.post(
             OLLAMA_API_URL,
             json={
                 "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False,
-                "temperature": 0.1
+                "temperature": 0.1,
+                "top_k": 40,
+                "top_p": 0.9
             },
             timeout=OLLAMA_TIMEOUT
         )
@@ -697,6 +700,8 @@ Return JSON with this exact structure:
         # Parse response
         data = response.json()
         response_text = data.get("response", "").strip()
+        
+        print(f"[Ollama] Response received: {response_text[:100]}")
         
         # Extract JSON from response - handle multiple approaches
         try:
@@ -717,19 +722,91 @@ Return JSON with this exact structure:
                 return {"success": True, "analysis": result}
             
         except Exception as parse_error:
-            print(f"Parse error: {parse_error}")
-            print(f"Response text: {response_text[:200]}")
+            print(f"[Ollama] Parse error: {parse_error}")
+            print(f"[Ollama] Response text: {response_text[:200]}")
         
-        return {"error": f"Could not parse Ollama response: {response_text[:100]}"}
+        return {"error": f"Could not parse Ollama response"}
         
-    except ImportError:
-        return {"error": "requests library not installed. Install with: pip install requests"}
-    except requests.exceptions.ConnectionError:
-        return {"error": "Ollama not running. Start with: ollama serve"}
     except requests.exceptions.Timeout:
-        return {"error": "Ollama request timeout (120s). Try using a smaller model like phi3"}
+        print(f"[Ollama] Timeout after {OLLAMA_TIMEOUT}s - Ollama is too slow")
+        return {"error": f"Ollama timeout - model is processing too slowly"}
+    except requests.exceptions.ConnectionError:
+        print(f"[Ollama] Connection error - Ollama not running")
+        return {"error": "Ollama not running. Start with: ollama serve"}
     except Exception as e:
+        print(f"[Ollama] Unexpected error: {str(e)}")
         return {"error": f"Unexpected error: {str(e)}"}
+
+
+def generate_ml_fallback_analysis(resume_text: str, job_description: str = "") -> Dict[str, Any]:
+    """
+    Fast fallback analysis using regex and keyword matching if Ollama fails.
+    """
+    try:
+        # Common skills keywords
+        common_skills = {
+            "Python": ["python", "py"],
+            "JavaScript": ["javascript", "js", "node"],
+            "React": ["react", "reactjs"],
+            "Java": ["java"],
+            "C++": ["c++", "cpp"],
+            "SQL": ["sql", "mysql", "postgres"],
+            "AWS": ["aws", "amazon"],
+            "Docker": ["docker"],
+            "Kubernetes": ["kubernetes", "k8s"],
+            "Git": ["git", "github", "gitlab"],
+            "REST API": ["rest", "api"],
+            "HTML": ["html"],
+            "CSS": ["css"],
+            "TypeScript": ["typescript", "ts"],
+        }
+        
+        # Extract skills from resume
+        resume_lower = resume_text.lower()
+        found_skills = []
+        for skill, keywords in common_skills.items():
+            for keyword in keywords:
+                if keyword in resume_lower:
+                    if skill not in found_skills:
+                        found_skills.append(skill)
+                    break
+        
+        # Extract job skills if job description provided
+        job_skills = []
+        if job_description:
+            job_lower = job_description.lower()
+            for skill, keywords in common_skills.items():
+                for keyword in keywords:
+                    if keyword in job_lower:
+                        if skill not in job_skills:
+                            job_skills.append(skill)
+                        break
+        
+        # Calculate match score
+        match_score = 0
+        if job_skills:
+            matched = len([s for s in found_skills if s in job_skills])
+            match_score = int((matched / len(job_skills)) * 100) if job_skills else 0
+        else:
+            match_score = min(len(found_skills) * 10, 100)  # Base score on number of skills
+        
+        # Determine future skills (in job but not in resume)
+        future_skills = [s for s in job_skills if s not in found_skills] if job_skills else []
+        
+        return {
+            "success": True,
+            "analysis": {
+                "skill_match_score": match_score,
+                "project_skills_implemented": found_skills,
+                "future_skills_required": future_skills,
+                "experience_alignment": "Match based on skills" if match_score >= 60 else "Partial match",
+                "experience_level": "Mid-level" if len(found_skills) >= 5 else "Junior",
+                "summary": f"Found {len(found_skills)} skills in resume. {len(future_skills)} skills needed for job."
+            }
+        }
+    except Exception as e:
+        print(f"[Fallback] Error: {str(e)}")
+        return {"error": f"Fallback analysis failed: {str(e)}"}
 
 
 @app.post("/analyze/resume-ollama")
@@ -772,24 +849,41 @@ async def analyze_resume_with_ollama(
     # Clean text
     cleaned_text = clean_text(raw_text)
     
-    # Call Ollama
+    # Call Ollama with 2-minute timeout
     print(f"[/analyze/resume-ollama] Starting Ollama analysis for {filename}")
     result = call_ollama(cleaned_text, job_description)
-    print(f"[/analyze/resume-ollama] Result: {result}")
+    print(f"[/analyze/resume-ollama] Ollama result: {result}")
     
-    # If Ollama failed, return error but with helpful message
+    # If Ollama failed, use fast ML fallback instead
     if "error" in result:
-        # Return 503 with the error message
-        print(f"[/analyze/resume-ollama] ERROR: {result['error']}")
-        raise HTTPException(status_code=503, detail=result["error"])
+        print(f"[/analyze/resume-ollama] Ollama failed, using ML fallback")
+        result = generate_ml_fallback_analysis(cleaned_text, job_description)
+        engine = "Fallback ML"
+    else:
+        engine = "Ollama LLM"
     
+    # Extract analysis data
+    analysis = result.get("analysis", {})
+    
+    # Format response with all required fields
     return {
         "filename": filename,
         "resume_text": cleaned_text[:1000],
-        "analysis": result.get("analysis", {}),
-        "engine": "Ollama LLM",
-        "model": "tinyllama"
+        "engine": engine,
+        "model": "tinyllama" if engine == "Ollama LLM" else "ml-fallback",
+        "job_match_score": analysis.get("skill_match_score", 0),
+        "matched_skills_count": len(analysis.get("project_skills_implemented", [])),
+        "total_skills": len(analysis.get("project_skills_implemented", [])) + len(analysis.get("future_skills_required", [])),
+        "analysis": {
+            "skill_match_score": analysis.get("skill_match_score", 0),
+            "project_skills_implemented": analysis.get("project_skills_implemented", []),
+            "future_skills_required": analysis.get("future_skills_required", []),
+            "experience_alignment": analysis.get("experience_alignment", ""),
+            "experience_level": analysis.get("experience_level", ""),
+            "summary": analysis.get("summary", "")
+        }
     }
+
 
 
 
@@ -853,4 +947,4 @@ async def check_ollama_status():
 # ------------------------------ 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=False)
