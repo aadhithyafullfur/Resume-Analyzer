@@ -1,0 +1,14 @@
+﻿John Smith
+Senior Python Developer
+
+Skills:
+- Python, JavaScript, React, Docker, AWS, Kubernetes
+
+Experience:
+Senior Developer at Tech Company (2020-2025)
+- Built microservices with Python and FastAPI
+- Deployed on AWS and Kubernetes
+- Led team of 5 developers
+
+Education:
+BS Computer Science, State University

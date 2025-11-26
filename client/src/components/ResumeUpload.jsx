@@ -10,8 +10,9 @@ export default function ResumeUpload() {
   const [error, setError] = useState(null);
   const [dragActive, setDragActive] = useState(false);
   const [jobDescription, setJobDescription] = useState("");
+  const [analysisMode, setAnalysisMode] = useState("ml"); // 'ml' or 'ollama'
 
-  const uploadResume = async () => {
+  const uploadResume = async (mode) => {
     if (!file) {
       setError("Please select a file to analyze");
       return;
@@ -24,14 +25,25 @@ export default function ResumeUpload() {
     formData.append("job_description", jobDescription);
 
     try {
-      const res = await mlApi.post("/predict", formData, {
+      let endpoint = "/predict"; // Default ML
+      if (mode === "ollama") {
+        endpoint = "/analyze/resume-ollama";
+      }
+
+      console.log(`Making request to: ${endpoint}`);
+      console.log(`File: ${file.name}, Size: ${file.size} bytes`);
+
+      const res = await mlApi.post(endpoint, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
+      console.log("Response received:", res.data);
       setResult(res.data);
       setError(null);
     } catch (err) {
+      console.error("Request failed:", err);
       const errorMessage =
+        err.response?.data?.detail ||
         err.response?.data?.message ||
         err.message ||
         "Failed to analyze resume. Please try again.";
@@ -136,18 +148,42 @@ export default function ResumeUpload() {
         </div>
       )}
 
+      {/* Analysis Mode Selection */}
+      <div className="mt-6 flex gap-4">
+        <button
+          onClick={() => setAnalysisMode("ml")}
+          className={`flex-1 py-2 rounded-lg font-semibold transition ${
+            analysisMode === "ml"
+              ? "bg-yellow-400/80 text-black"
+              : "bg-gray-700/50 text-gray-300 hover:bg-gray-600/50"
+          }`}
+        >
+          🤖 Traditional ML
+        </button>
+        <button
+          onClick={() => setAnalysisMode("ollama")}
+          className={`flex-1 py-2 rounded-lg font-semibold transition ${
+            analysisMode === "ollama"
+              ? "bg-blue-400/80 text-black"
+              : "bg-gray-700/50 text-gray-300 hover:bg-gray-600/50"
+          }`}
+        >
+          ✨ AI Analysis (Ollama)
+        </button>
+      </div>
+
       {/* Analyze Button */}
       <button
-        onClick={uploadResume}
+        onClick={() => uploadResume(analysisMode)}
         disabled={loading || !file}
-        className="w-full mt-6 bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed text-black font-bold py-3 rounded-lg transition shadow-lg hover:shadow-yellow-500/50"
+        className="w-full mt-4 bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed text-black font-bold py-3 rounded-lg transition shadow-lg hover:shadow-yellow-500/50"
       >
         {loading ? (
           <span className="flex items-center justify-center gap-2">
             <span className="animate-spin">⏳</span> Analyzing Resume...
           </span>
         ) : (
-          "Analyze Resume"
+          `Analyze with ${analysisMode === "ollama" ? "AI (Ollama)" : "ML"}`
         )}
       </button>
 

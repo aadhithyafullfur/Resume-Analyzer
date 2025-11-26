@@ -95,6 +95,7 @@ Provide a JSON response with:
 6. soft_skills: List of detected soft skills
 7. technical_skills: List of detected technical skills
 8. job_match_analysis: If job description provided, detailed match analysis
+9. match_percentage: If job description provided, percentage match score (0-100)
 
 Return ONLY valid JSON, no markdown or extra text."""
 
@@ -126,89 +127,60 @@ Return ONLY valid JSON, no markdown or extra text."""
     except Exception as e:
         return {"error": f"OpenAI analysis failed: {str(e)}"}
 
-def extract_text_with_openai(resume_text: str) -> str:
+def extract_resume_text_with_openai(raw_text: str) -> Dict[str, Any]:
     """
-    Use OpenAI to clean and structure the extracted resume text
+    Use OpenAI to extract structured information from resume
     """
-    if not OPENAI_API_KEY or not resume_text:
-        return resume_text
+    if not OPENAI_API_KEY:
+        return {"error": "OpenAI API key not configured", "raw_text": raw_text}
     
     try:
-        prompt = f"""You are a resume processing assistant. Clean and structure this resume text, removing any noise or unnecessary formatting. 
-Keep all important information (skills, experience, education, contact info).
-Return only the cleaned resume text, no markdown or extra formatting.
+        prompt = f"""Extract structured information from this resume and return as JSON.
 
-Resume text:
-{resume_text[:3000]}"""
+Resume:
+{raw_text}
+
+Extract and return JSON with:
+1. name: Full name of candidate
+2. email: Email address if found
+3. phone: Phone number if found
+4. summary: Professional summary or objective
+5. experience: List of job titles and companies
+6. education: List of degrees and institutions
+7. skills: List of all technical and soft skills
+8. certifications: Any certifications or credentials
+9. languages: Languages spoken
+10. years_of_experience: Estimated total years
+
+Return ONLY valid JSON, no markdown or extra text."""
 
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a resume cleaning assistant. Return only cleaned text, no markdown."},
+                {"role": "system", "content": "You are an expert at extracting structured data from resumes. Always respond with valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
             max_tokens=1500
         )
         
-        cleaned_text = response.choices[0].message.content.strip()
-        return cleaned_text
-    
-    except Exception:
-        # If OpenAI fails, return original text
-        return resume_text
-
-def calculate_job_match_with_openai(resume_text: str, job_description: str) -> Dict[str, Any]:
-    """
-    Use OpenAI to intelligently match resume with job description
-    Returns match score and detailed analysis
-    """
-    if not OPENAI_API_KEY or not job_description:
-        return {"match_score": 0, "match_analysis": "No job description provided"}
-    
-    try:
-        prompt = f"""Analyze how well this resume matches the job description.
-        
-Resume (key points):
-{resume_text[:1500]}
-
-Job Description:
-{job_description[:1500]}
-
-Provide a JSON response with:
-1. match_score: Overall match percentage (0-100)
-2. matched_skills: List of resume skills that match job requirements
-3. missing_skills: List of job requirements not found in resume
-4. match_analysis: Brief analysis of the match
-5. recommendations: What the candidate should focus on to improve fit
-
-Return ONLY valid JSON, no markdown."""
-
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are an expert recruiter analyzing resume-job fit. Always respond with valid JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=1500
-        )
-        
         response_text = response.choices[0].message.content
         
+        # Try to parse JSON response
         try:
-            match_data = json.loads(response_text)
+            extracted = json.loads(response_text)
         except json.JSONDecodeError:
+            # If JSON parsing fails, extract JSON from markdown code blocks
             json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
             if json_match:
-                match_data = json.loads(json_match.group(1))
+                extracted = json.loads(json_match.group(1))
             else:
-                match_data = {"match_score": 0}
+                extracted = {"raw_text": raw_text}
         
-        return match_data
+        return extracted
     
     except Exception as e:
-        return {"match_score": 0, "error": str(e)}
+        return {"error": f"OpenAI extraction failed: {str(e)}", "raw_text": raw_text}
 
 # Keyword list (adapt to your training)
 SKILL_KEYWORDS = [
@@ -553,8 +525,8 @@ async def batch_analyze(files: List[UploadFile] = File(...)):
 @app.post("/predict")
 async def predict(file: UploadFile = File(...), job_description: str = ""):
     """
-    Analyze resume and match it against job description.
-    Returns skills analysis, category predictions, and job match score.
+    Analyze resume and match it against job description using OpenAI.
+    Returns skills analysis, category predictions, and AI-powered job match score.
     """
     if not file:
         raise HTTPException(status_code=400, detail="No file uploaded.")
@@ -585,11 +557,8 @@ async def predict(file: UploadFile = File(...), job_description: str = ""):
     if not raw_text:
         raise HTTPException(status_code=400, detail="Could not extract text from file.")
 
-    # Clean and structure text using OpenAI
-    structured_text = extract_text_with_openai(raw_text)
-    
     # Clean and extract skills
-    cleaned = clean_text(structured_text)
+    cleaned = clean_text(raw_text)
     skills_found = extract_skills_from_text(cleaned)
     skills_text = " ".join(skills_found) if skills_found else cleaned[:1000]
 
@@ -609,12 +578,7 @@ async def predict(file: UploadFile = File(...), job_description: str = ""):
     lstm_cat_res = lstm_predict_with_confidence(lstm_cat, tokenizer, cleaned, max_len) if (lstm_cat and tokenizer) else {"label_index": None, "confidence": None}
     lstm_type_res = lstm_predict_with_confidence(lstm_type, tokenizer, cleaned, max_len) if (lstm_type and tokenizer) else {"label_index": None, "confidence": None}
 
-    # Get OpenAI-based job matching if job description is provided
-    openai_match = {}
-    if job_description:
-        openai_match = calculate_job_match_with_openai(structured_text, job_description)
-    
-    # Calculate traditional keyword-based job match score
+    # Calculate basic job match score from keyword matching
     job_match_score = 0
     matched_skills = []
     
@@ -628,11 +592,22 @@ async def predict(file: UploadFile = File(...), job_description: str = ""):
         if skills_found:
             job_match_score = round((len(matched_skills) / len(skills_found)) * 100, 2)
     
-    # Get OpenAI analysis for enhanced insights
-    openai_analysis = analyze_resume_with_openai(structured_text, job_description)
+    # Get OpenAI analysis for enhanced insights and AI-powered matching
+    openai_analysis = analyze_resume_with_openai(raw_text, job_description)
     
-    # Use OpenAI match score if available, otherwise use keyword matching
-    final_match_score = openai_match.get("match_score", job_match_score) if openai_match else job_match_score
+    # Extract OpenAI match percentage if available
+    ai_match_score = openai_analysis.get("match_percentage", job_match_score)
+    if isinstance(ai_match_score, str):
+        try:
+            ai_match_score = float(ai_match_score.replace('%', ''))
+        except:
+            ai_match_score = job_match_score
+    
+    # Use AI match score if available, otherwise use basic keyword matching
+    final_match_score = ai_match_score if ai_match_score != job_match_score else job_match_score
+    
+    # Also extract structured resume data using OpenAI
+    resume_extraction = extract_resume_text_with_openai(raw_text)
     
     return {
         "filename": filename,
@@ -645,14 +620,15 @@ async def predict(file: UploadFile = File(...), job_description: str = ""):
         "skill_type_lstm_index": lstm_type_res.get("label_index"),
         "skill_type_lstm_conf": round(lstm_type_res.get("confidence", 0) * 100, 2) if lstm_type_res.get("confidence") else None,
         "skills_found": skills_found,
-        "matched_skills": openai_match.get("matched_skills", matched_skills),
-        "missing_skills": openai_match.get("missing_skills", []),
+        "matched_skills": matched_skills,
         "job_match_score": final_match_score,
+        "keyword_match_score": job_match_score,
+        "ai_match_score": ai_match_score,
         "total_skills": len(skills_found),
         "matched_skills_count": len(matched_skills),
         "text_snippet": cleaned[:2000],
+        "resume_extraction": resume_extraction,
         "openai_analysis": openai_analysis,
-        "openai_job_match": openai_match,
         "chart_data": {
             "skillsDistribution": {
                 "matched": len(matched_skills),
@@ -667,6 +643,205 @@ async def predict(file: UploadFile = File(...), job_description: str = ""):
             "jobMatchPercentage": final_match_score
         }
     }
+
+
+# ==============================
+# OLLAMA INTEGRATION
+# ==============================
+
+def call_ollama(resume_text: str, job_description: str = "") -> Dict[str, Any]:
+    """
+    Call Ollama LLM for intelligent resume analysis.
+    Falls back gracefully if Ollama is not available.
+    """
+    try:
+        import requests
+        
+        OLLAMA_API_URL = "http://localhost:11434/api/generate"
+        OLLAMA_MODEL = "phi3"  # Fast model, good quality. Alternatives: llama3.1, qwen2, mistral
+        OLLAMA_TIMEOUT = 120
+        
+        # Create intelligent prompt - simplified for better JSON parsing
+        if job_description:
+            prompt = f"""Analyze this resume against the job description. Return ONLY a valid JSON object with these exact fields (no markdown, no extra text):
+
+RESUME: {resume_text[:500]}
+JOB: {job_description[:300]}
+
+Return JSON with this exact structure:
+{{"overall_match": 0, "matched_skills": [], "missing_skills": [], "experience_alignment": "", "improvement_suggestions": [], "summary": ""}}"""
+        else:
+            prompt = f"""Analyze this resume. Return ONLY a valid JSON object with these exact fields (no markdown, no extra text):
+
+RESUME: {resume_text[:500]}
+
+Return JSON with this exact structure:
+{{"skills_identified": [], "experience_level": "", "key_strengths": [], "improvement_areas": [], "summary": ""}}"""
+        
+        # Call Ollama
+        response = requests.post(
+            OLLAMA_API_URL,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "temperature": 0.1
+            },
+            timeout=OLLAMA_TIMEOUT
+        )
+        
+        if response.status_code != 200:
+            return {"error": f"Ollama error: {response.status_code}"}
+        
+        # Parse response
+        data = response.json()
+        response_text = data.get("response", "").strip()
+        
+        # Extract JSON from response - handle multiple approaches
+        try:
+            # First, try direct JSON parsing
+            try:
+                result = json.loads(response_text)
+                return {"success": True, "analysis": result}
+            except json.JSONDecodeError:
+                pass
+            
+            # Second, try to find JSON object in response
+            start_idx = response_text.find('{')
+            end_idx = response_text.rfind('}')
+            
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                json_str = response_text[start_idx:end_idx+1]
+                result = json.loads(json_str)
+                return {"success": True, "analysis": result}
+            
+        except Exception as parse_error:
+            print(f"Parse error: {parse_error}")
+            print(f"Response text: {response_text[:200]}")
+        
+        return {"error": f"Could not parse Ollama response: {response_text[:100]}"}
+        
+    except ImportError:
+        return {"error": "requests library not installed. Install with: pip install requests"}
+    except requests.exceptions.ConnectionError:
+        return {"error": "Ollama not running. Start with: ollama serve"}
+    except requests.exceptions.Timeout:
+        return {"error": "Ollama request timeout (120s). Try using a smaller model like phi3"}
+    except Exception as e:
+        return {"error": f"Unexpected error: {str(e)}"}
+
+
+@app.post("/analyze/resume-ollama")
+async def analyze_resume_with_ollama(
+    file: UploadFile = File(...),
+    job_description: str = ""
+):
+    """
+    Upload resume and optionally job description.
+    Extracts text and analyzes with Ollama LLM.
+    """
+    if not file:
+        raise HTTPException(status_code=400, detail="No file uploaded.")
+    
+    content = await file.read()
+    filename = file.filename or ""
+    
+    # Extract text from file
+    ext = (filename.split(".")[-1] if "." in filename else "").lower()
+    raw_text = ""
+    
+    if ext == "pdf":
+        raw_text = extract_text_from_pdf_bytes(content)
+    elif ext == "docx":
+        raw_text = extract_text_from_docx_bytes(content)
+    elif ext == "txt":
+        try:
+            raw_text = content.decode("utf-8", errors="ignore")
+        except:
+            raw_text = ""
+    else:
+        # Try all methods
+        raw_text = extract_text_from_pdf_bytes(content)
+        if not raw_text:
+            raw_text = extract_text_from_docx_bytes(content)
+    
+    if not raw_text:
+        raise HTTPException(status_code=400, detail="Could not extract text from resume file.")
+    
+    # Clean text
+    cleaned_text = clean_text(raw_text)
+    
+    # Call Ollama
+    result = call_ollama(cleaned_text, job_description)
+    
+    # If Ollama failed, return error but with helpful message
+    if "error" in result:
+        # Return 503 with the error message
+        raise HTTPException(status_code=503, detail=result["error"])
+    
+    return {
+        "filename": filename,
+        "resume_text": cleaned_text[:1000],
+        "analysis": result.get("analysis", {}),
+        "engine": "Ollama LLM",
+        "model": "phi3"
+    }
+
+
+
+
+@app.get("/test/ollama")
+async def test_ollama():
+    """
+    Test endpoint - simulates Ollama response for debugging
+    """
+    return {
+        "status": "test",
+        "message": "Ollama integration working!",
+        "analysis": {
+            "overall_match": 82,
+            "matched_skills": ["Python", "JavaScript", "React"],
+            "missing_skills": ["Kubernetes", "Docker"],
+            "experience_alignment": "Good match for mid-level role",
+            "improvement_suggestions": [
+                "Learn container orchestration",
+                "Gain AWS deployment experience"
+            ],
+            "summary": "Your resume is well-suited for this position with strong fundamentals."
+        }
+    }
+
+
+@app.get("/ollama/status")
+async def check_ollama_status():
+    """
+    Check if Ollama is running and list available models.
+    """
+    try:
+        import requests
+        
+        response = requests.get("http://localhost:11434/api/tags", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            models = [m.get("name", "") for m in data.get("models", [])]
+            return {
+                "status": "connected",
+                "available": True,
+                "models": models,
+                "message": "Ollama is running and ready!"
+            }
+        else:
+            return {
+                "status": "error",
+                "available": False,
+                "message": f"Ollama returned status {response.status_code}"
+            }
+    except:
+        return {
+            "status": "disconnected",
+            "available": False,
+            "message": "Ollama is not running. Start with: ollama serve"
+        }
 
 
 # ------------------------------ 
