@@ -14,6 +14,14 @@ export default function JobMatchVisualization({ data }) {
   const futureSkills = analysis.future_skills_required || [];
   const requiredSkillsFromJob = analysis.required_skills_from_job || [];
   const matchingSkills = analysis.matching_skills || [];
+  const resumeSkillsDetected = analysis.resume_skills_detected || [];
+  const missingSkills = analysis.missing_skills || [];
+  
+  // Debug: Log data to console
+  console.log("Resume Skills Detected:", resumeSkillsDetected);
+  console.log("Required Skills from Job:", requiredSkillsFromJob);
+  console.log("Matching Skills:", matchingSkills);
+  console.log("Missing Skills:", missingSkills);
   
   // Calculate percentages based on actual required skills (not total in resume)
   const totalRequired = futureSkills.length > 0 ? (projectSkills.length + futureSkills.length) : projectSkills.length;
@@ -102,7 +110,7 @@ export default function JobMatchVisualization({ data }) {
           >
             {tab === "overview" && "Overview"}
             {tab === "implemented" && `✓ Implemented (${matchingSkills.length})`}
-            {tab === "required" && `📚 Required (${requiredSkillsFromJob.length})`}
+            {tab === "required" && `📚 Required (${resumeSkillsDetected.length}/${requiredSkillsFromJob.length})`}
             {tab === "analysis" && "Analysis"}
             {tab === "transparency" && "Transparency"}
           </button>
@@ -243,14 +251,38 @@ export default function JobMatchVisualization({ data }) {
       {/* REQUIRED SKILLS TAB */}
       {expandedTab === "required" && (
         <div className="space-y-6">
-          {/* All Required Skills Section */}
+          {/* Section 1: Your Resume Skills */}
           <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6">
             <h3 className="text-blue-400 font-semibold mb-4 flex items-center gap-2">
-              <span className="text-2xl">📋</span>
-              All Required Skills for This Job ({requiredSkillsFromJob.length})
+              <span className="text-2xl">📄</span>
+              Skills Found in Your Resume ({resumeSkillsDetected.length})
             </h3>
             
-            {requiredSkillsFromJob.length > 0 ? (
+            {resumeSkillsDetected.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {resumeSkillsDetected.map((skill, idx) => (
+                  <div
+                    key={idx}
+                    className="bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/50 rounded-lg p-3 text-center transition"
+                  >
+                    <p className="text-blue-300 font-semibold text-sm">{skill}</p>
+                    <p className="text-xs text-gray-400 mt-1">Your Skill</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-400 italic">No skills detected in your resume</p>
+            )}
+          </div>
+
+          {/* Section 2: Job Required Skills */}
+          {requiredSkillsFromJob.length > 0 && (
+            <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-6">
+              <h3 className="text-purple-400 font-semibold mb-4 flex items-center gap-2">
+                <span className="text-2xl">🎯</span>
+                Skills Required by the Job ({requiredSkillsFromJob.length})
+              </h3>
+              
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 {requiredSkillsFromJob.map((skill, idx) => {
                   const isMatched = matchingSkills.includes(skill);
@@ -266,26 +298,24 @@ export default function JobMatchVisualization({ data }) {
                       <p className={`font-semibold text-sm ${isMatched ? "text-green-300" : "text-orange-300"}`}>
                         {skill}
                       </p>
-                      <p className={`text-xs mt-1 ${isMatched ? "text-green-400" : "text-orange-400"}`}>
-                        {isMatched ? "✓ You Have" : "→ Need"}
+                      <p className={`text-xs mt-1 font-semibold ${isMatched ? "text-green-400" : "text-orange-400"}`}>
+                        {isMatched ? "✓ You Have" : "✗ Missing"}
                       </p>
                     </div>
                   );
                 })}
               </div>
-            ) : (
-              <p className="text-gray-400 italic">No job description provided</p>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* Matching Skills Section */}
-          <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-6">
-            <h3 className="text-green-400 font-semibold mb-4 flex items-center gap-2">
-              <span className="text-2xl">✓</span>
-              Skills You Already Have ({matchingSkills.length})
-            </h3>
-            
-            {matchingSkills.length > 0 ? (
+          {/* Section 3: Matching Skills */}
+          {matchingSkills.length > 0 && (
+            <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-6">
+              <h3 className="text-green-400 font-semibold mb-4 flex items-center gap-2">
+                <span className="text-2xl">✓</span>
+                Skills You Have That Match the Job ({matchingSkills.length})
+              </h3>
+              
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 {matchingSkills.map((skill, idx) => (
                   <div
@@ -297,21 +327,19 @@ export default function JobMatchVisualization({ data }) {
                   </div>
                 ))}
               </div>
-            ) : (
-              <p className="text-gray-400 italic">No matching skills identified</p>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* Missing Skills Section */}
-          <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-6">
-            <h3 className="text-orange-400 font-semibold mb-4 flex items-center gap-2">
-              <span className="text-2xl">📚</span>
-              Skills You Need to Learn ({futureSkills.length})
-            </h3>
-            
-            {futureSkills.length > 0 ? (
+          {/* Section 4: Missing Skills */}
+          {missingSkills.length > 0 && (
+            <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-6">
+              <h3 className="text-orange-400 font-semibold mb-4 flex items-center gap-2">
+                <span className="text-2xl">📚</span>
+                Skills You Need to Learn ({missingSkills.length})
+              </h3>
+              
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                {futureSkills.map((skill, idx) => (
+                {missingSkills.map((skill, idx) => (
                   <div
                     key={idx}
                     className="bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/50 rounded-lg p-3 text-center transition"
@@ -321,18 +349,24 @@ export default function JobMatchVisualization({ data }) {
                   </div>
                 ))}
               </div>
-            ) : (
-              <p className="text-gray-300 font-semibold">✓ You have all required skills!</p>
-            )}
 
-            {futureSkills.length > 0 && (
               <div className="mt-6 p-4 bg-black/40 rounded-lg border border-orange-500/20">
                 <p className="text-sm text-gray-300">
-                  <span className="font-semibold text-orange-400">💡 Recommendation:</span> Consider taking courses or projects involving these skills to increase your candidacy.
+                  <span className="font-semibold text-orange-400">💡 Recommendation:</span> Focus on learning these {missingSkills.length} skills to improve your match score.
                 </p>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* If no job description */}
+          {requiredSkillsFromJob.length === 0 && (
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-6">
+              <h3 className="text-yellow-400 font-semibold mb-3">⚠️ No Job Description Provided</h3>
+              <p className="text-gray-300">
+                Add a job description to see which of your skills match the job requirements and what skills you need to learn.
+              </p>
+            </div>
+          )}
         </div>
       )}
 

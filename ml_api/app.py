@@ -628,8 +628,8 @@ async def batch_analyze(files: List[UploadFile] = File(...)):
 @app.post("/predict")
 async def predict(file: UploadFile = File(...), job_description: str = ""):
     """
-    Analyze resume and match it against job description using OpenAI.
-    Returns skills analysis, category predictions, and AI-powered job match score.
+    Analyze resume and match it against job description.
+    Returns complete skill analysis with detailed breakdown.
     """
     if not file:
         raise HTTPException(status_code=400, detail="No file uploaded.")
@@ -660,103 +660,36 @@ async def predict(file: UploadFile = File(...), job_description: str = ""):
     if not raw_text:
         raise HTTPException(status_code=400, detail="Could not extract text from file.")
 
-    # Clean and extract skills
-    cleaned = clean_text(raw_text)
-    skills_found = extract_skills_from_text(cleaned)
-    skills_text = " ".join(skills_found) if skills_found else cleaned[:1000]
-
-    # TF-IDF predictions
-    tfidf_vec = None
-    cat_res = {"label": None, "confidence": None}
-    type_res = {"label": None, "confidence": None}
-    if tfidf is not None:
-        try:
-            tfidf_vec = tfidf.transform([skills_text])
-            cat_res = sklearn_predict_with_confidence(clf_cat, tfidf_vec)
-            type_res = sklearn_predict_with_confidence(clf_type, tfidf_vec)
-        except Exception:
-            pass
-
-    # LSTM predictions
-    lstm_cat_res = lstm_predict_with_confidence(lstm_cat, tokenizer, cleaned, max_len) if (lstm_cat and tokenizer) else {"label_index": None, "confidence": None}
-    lstm_type_res = lstm_predict_with_confidence(lstm_type, tokenizer, cleaned, max_len) if (lstm_type and tokenizer) else {"label_index": None, "confidence": None}
-
-    # Calculate basic job match score from keyword matching
-    job_match_score = 0
-    matched_skills = []
-    job_skills_required = []
+    # Clean text
+    cleaned_text = clean_text(raw_text)
     
-    if job_description:
-        # Extract skills from job description
-        job_desc_cleaned = clean_text(job_description)
-        job_skills_required = extract_skills_from_text(job_desc_cleaned)
-        
-        # Count how many required skills are in the resume
-        for skill in job_skills_required:
-            if skill in skills_found:
-                matched_skills.append(skill)
-        
-        # ACCURATE MATCH SCORE: (matched required skills / total required skills) * 100
-        if job_skills_required:
-            job_match_score = round((len(matched_skills) / len(job_skills_required)) * 100, 2)
-        else:
-            job_match_score = 0
-    else:
-        # No job description provided - use baseline based on resume skills
-        if skills_found:
-            job_match_score = min(len(skills_found) * 5, 70)  # Cap at 70% without job description
+    # Use ML fallback analysis (accurate skill extraction and matching)
+    result = generate_ml_fallback_analysis(cleaned_text, job_description)
     
-    # Get OpenAI analysis for enhanced insights and AI-powered matching
-    openai_analysis = analyze_resume_with_openai(raw_text, job_description)
+    # Extract analysis data
+    analysis = result.get("analysis", {})
     
-    # Extract OpenAI match percentage if available
-    ai_match_score = openai_analysis.get("match_percentage", job_match_score)
-    if isinstance(ai_match_score, str):
-        try:
-            ai_match_score = float(ai_match_score.replace('%', ''))
-        except:
-            ai_match_score = job_match_score
-    
-    # Use AI match score if available, otherwise use basic keyword matching
-    final_match_score = ai_match_score if ai_match_score != job_match_score else job_match_score
-    
-    # Also extract structured resume data using OpenAI
-    resume_extraction = extract_resume_text_with_openai(raw_text)
-    
+    # Format response with all required fields compatible with frontend
     return {
         "filename": filename,
-        "category_tfidf": cat_res["label"],
-        "category_tfidf_conf": round(cat_res["confidence"] * 100, 2) if cat_res["confidence"] else None,
-        "skill_type_tfidf": type_res["label"],
-        "skill_type_tfidf_conf": round(type_res["confidence"] * 100, 2) if type_res["confidence"] else None,
-        "category_lstm_index": lstm_cat_res.get("label_index"),
-        "category_lstm_conf": round(lstm_cat_res.get("confidence", 0) * 100, 2) if lstm_cat_res.get("confidence") else None,
-        "skill_type_lstm_index": lstm_type_res.get("label_index"),
-        "skill_type_lstm_conf": round(lstm_type_res.get("confidence", 0) * 100, 2) if lstm_type_res.get("confidence") else None,
-        "skills_found": skills_found,
-        "matched_skills": matched_skills,
-        "job_skills_required": job_skills_required,
-        "future_skills_required": [s for s in job_skills_required if s not in matched_skills],
-        "job_match_score": final_match_score,
-        "keyword_match_score": job_match_score,
-        "ai_match_score": ai_match_score,
-        "total_skills": len(skills_found),
-        "matched_skills_count": len(matched_skills),
-        "text_snippet": cleaned[:2000],
-        "resume_extraction": resume_extraction,
-        "openai_analysis": openai_analysis,
-        "chart_data": {
-            "skillsDistribution": {
-                "matched": len(matched_skills),
-                "unmatched": len(skills_found) - len(matched_skills)
-            },
-            "confidenceScores": {
-                "category_tfidf": cat_res["confidence"],
-                "skill_type_tfidf": type_res["confidence"],
-                "category_lstm": lstm_cat_res.get("confidence"),
-                "skill_type_lstm": lstm_type_res.get("confidence")
-            },
-            "jobMatchPercentage": final_match_score
+        "resume_text": cleaned_text[:1000],
+        "engine": "ML Fallback",
+        "model": "skill-matcher-v2",
+        "job_match_score": analysis.get("skill_match_score", 0),
+        "matched_skills_count": len(analysis.get("matching_skills", [])),
+        "total_skills": len(analysis.get("resume_skills_detected", [])),
+        "analysis": {
+            "skill_match_score": analysis.get("skill_match_score", 0),
+            "project_skills_implemented": analysis.get("project_skills_implemented", []),
+            "future_skills_required": analysis.get("future_skills_required", []),
+            "resume_skills_detected": analysis.get("resume_skills_detected", []),
+            "required_skills_from_job": analysis.get("required_skills_from_job", []),
+            "matching_skills": analysis.get("matching_skills", []),
+            "missing_skills": analysis.get("missing_skills", []),
+            "experience_alignment": analysis.get("experience_alignment", ""),
+            "experience_level": analysis.get("experience_level", ""),
+            "summary": analysis.get("summary", ""),
+            "calculation_audit": analysis.get("calculation_audit", {})
         }
     }
 
@@ -941,11 +874,13 @@ def generate_ml_fallback_analysis(resume_text: str, job_description: str = "") -
             "success": True,
             "analysis": {
                 "skill_match_score": max(0, min(100, match_score)),  # Ensure 0-100
+                "resume_skills_detected": resume_skills,  # ALL skills found in resume
+                "job_skills_required": job_skills,  # ALL required skills from job
+                "matching_skills": matched_skills,  # Skills that match between resume and job
+                "missing_skills": future_skills,  # Skills needed but not in resume
                 "project_skills_implemented": project_skills,
                 "future_skills_required": future_skills,
                 "required_skills_from_job": job_skills,  # ALL required skills from job
-                "matching_skills": matched_skills,  # Skills that match between resume and job
-                "missing_skills": future_skills,  # Skills needed but not in resume
                 "experience_alignment": experience_alignment,
                 "experience_level": experience_level,
                 "summary": summary,

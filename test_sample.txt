@@ -1,0 +1,39 @@
+TEST SAMPLE FOR SKILL EXTRACTION
+
+RESUME TEXT:
+John Doe
+Senior Software Developer
+
+Experience:
+- Python, JavaScript, TypeScript developer for 5 years
+- Worked with React, Vue.js, Angular frameworks
+- Database experience: PostgreSQL, MongoDB, Firebase
+- Cloud platforms: AWS, Azure
+- DevOps tools: Docker, Kubernetes, Jenkins
+- Version control: Git, GitHub, GitLab
+- APIs: REST API, GraphQL
+- Tools: Node.js, Express, Django, FastAPI
+- Machine Learning: TensorFlow, PyTorch, Keras, Pandas, NumPy
+- Other: Linux, Agile, Scrum, JIRA
+
+---
+
+JOB DESCRIPTION TEXT:
+Senior Full Stack Developer
+
+Required Skills:
+- JavaScript and TypeScript
+- React or Vue.js
+- Node.js and Express
+- PostgreSQL or MySQL
+- AWS or Azure
+- Docker
+- Git
+- REST API design
+- Agile and Scrum
+
+Nice to Have:
+- Python
+- MongoDB
+- Kubernetes
+- GraphQL
